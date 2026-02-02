@@ -120,97 +120,263 @@ def compute_score_subem(solution_str, ground_truth, method='strict', format_scor
 import re
 import json
 
-def extract_query_list(test_str):
+import re
+import json
+
+def extract_all_query_lists(test_str):
     """
-    从字符串中提取 <tool_call> 标签内的 query_list 列表
+    从字符串中提取**所有** <tool_call> 标签内的 query_list 列表
     
     参数:
         test_str (str): 包含 tool_call 标签的原始字符串
     
     返回:
-        list: 提取到的 query_list 列表；提取失败返回空列表
+        list: 提取到的 query_list 列表的集合（每个元素对应一个 tool_call 标签的结果）；无有效内容返回空列表
     """
-    # 匹配 <tool_call> 内的 JSON 内容
+    # 匹配 <tool_call> 内的 JSON 内容（匹配所有标签，使用 findall）
     pattern = r'<tool_call>\s*({.*?})\s*</tool_call>'
-    match = re.search(pattern, test_str, re.DOTALL)  # re.DOTALL 匹配换行符
+    matches = re.findall(pattern, test_str, re.DOTALL)  # re.DOTALL 匹配换行符，findall 获取所有结果
     
-    if not match:
-        print("提示（extract_query_list）：未找到 <tool_call> 标签或标签内无有效内容")
-        return []
+    all_query_lists = []
+    if not matches:
+        print("提示（extract_all_query_lists）：未找到 <tool_call> 标签或标签内无有效内容")
+        return all_query_lists
     
-    try:
-        # 解析 JSON 并提取 query_list
-        tool_call_json = match.group(1)
-        tool_call_data = json.loads(tool_call_json)
-        query_list = tool_call_data.get("arguments", {}).get("query_list", [])
-        return query_list
-    except json.JSONDecodeError as e:
-        print(f"错误（extract_query_list）：JSON 解析失败 - {e}")
-        return []
-    except Exception as e:
-        print(f"错误（extract_query_list）：提取失败 - {e}")
-        return []
+    for idx, tool_call_json in enumerate(matches, 1):
+        try:
+            # 解析 JSON 并提取 query_list
+            tool_call_data = json.loads(tool_call_json)
+            query_list = tool_call_data.get("arguments", {}).get("query_list", [])
+            all_query_lists.append(query_list)
+        except json.JSONDecodeError as e:
+            print(f"错误（extract_all_query_lists）：第 {idx} 个 tool_call JSON 解析失败 - {e}")
+            all_query_lists.append([])  # 解析失败填充空列表，保证列表长度匹配
+        except Exception as e:
+            print(f"错误（extract_all_query_lists）：第 {idx} 个 tool_call 提取失败 - {e}")
+            all_query_lists.append([])  # 其他错误填充空列表，保证列表长度匹配
+    
+    return all_query_lists
 
-def extract_tool_response_docs(test_str):
+def extract_all_tool_response_docs(test_str):
     """
-    从字符串中提取 <tool_response> 的 result 内容，按 Doc 1/2/3... 拆分为列表
-    保留每个 Doc 的完整文本（含 Doc X (Title: ...) 标识），列表长度=实际 Doc 数量
+    从字符串中提取**所有** <tool_response> 的 result 内容，按 Doc 1/2/3... 拆分为列表
+    保留每个 Doc 的完整文本（含 Doc X (Title: ...) 标识），返回多组结果的集合
     
     参数:
         test_str (str): 包含 tool_response 标签的原始字符串
     
     返回:
-        list: 按 Doc 拆分后的完整内容列表；提取失败返回空列表
+        list: 每个元素对应一个 tool_response 标签的 Doc 列表；无有效内容返回空列表
     """
-    # 步骤1：先提取 tool_response 中的 result 原始内容
+    # 步骤1：提取**所有** tool_response 中的原始内容
     tool_response_pattern = r'<tool_response>\s*(.*?)\s*</tool_response>'
-    tr_match = re.search(tool_response_pattern, test_str, re.DOTALL)
-    if not tr_match:
-        print("提示（extract_tool_response_docs）：未找到 <tool_response> 标签或标签内无有效内容")
+    tr_matches = re.findall(tool_response_pattern, test_str, re.DOTALL)
+    
+    all_doc_lists = []
+    if not tr_matches:
+        print("提示（extract_all_tool_response_docs）：未找到 <tool_response> 标签或标签内无有效内容")
+        return all_doc_lists
+    
+    for tr_idx, raw_tr_content in enumerate(tr_matches, 1):
+        # 步骤2：提取 result 字段的值
+        result_pattern = r'"result"\s*:\s*"(.*?)"(?=})'
+        result_match = re.search(result_pattern, raw_tr_content, re.DOTALL)
+        if not result_match:
+            # 兼容单引号情况
+            result_pattern_single = r"'result'\s*:\s*'(.*?)'(?=})"
+            result_match = re.search(result_pattern_single, raw_tr_content, re.DOTALL)
+            if not result_match:
+                print(f"错误（extract_all_tool_response_docs）：第 {tr_idx} 个 tool_response 未找到 result 字段或格式不匹配")
+                all_doc_lists.append([])
+                continue
+        
+        # 还原转义字符并清理原始 result 内容
+        result_content = (
+            result_match.group(1)
+            .strip()
+            .replace("\\n", "\n")  # 还原换行符
+            .replace('\\"', '"')   # 还原转义双引号
+        )
+        
+        # 步骤3：匹配完整的 Doc 片段（保留 Doc X 标识）
+        doc_pattern = r'(Doc \d+ \(Title: .*?\)\n.*?)(?=Doc \d+ \(Title: |$)'
+        doc_matches = re.findall(doc_pattern, result_content, re.DOTALL)
+        
+        # 步骤4：清理每个 Doc 内容的首尾空白，生成当前 tool_response 的 Doc 列表
+        doc_list = [doc.strip() for doc in doc_matches]
+        all_doc_lists.append(doc_list)
+    
+    return all_doc_lists
+
+def extract_paired_tool_data(test_str):
+    """
+    整合函数：提取文本中所有成对的 <tool_call> 和 <tool_response>，返回成对列表
+    
+    参数:
+        test_str (str): 包含多对 tool_call/tool_response 标签的原始字符串
+    
+    返回:
+        list: 每个元素为 (query_list, doc_list)，一一对应成对的 tool 调用和响应；多余单侧标签忽略
+    """
+    # 提取所有的 query_list 集合和 doc_list 集合
+    all_query_lists = extract_all_query_lists(test_str)
+    all_doc_lists = extract_all_tool_response_docs(test_str)
+    
+    # 按出现顺序一一配对，取两者中较短的长度，忽略多余的单侧标签
+    paired_list = []
+    pair_count = min(len(all_query_lists), len(all_doc_lists))
+    
+    for i in range(pair_count):
+        paired_element = (all_query_lists[i], all_doc_lists[i])
+        paired_list.append(paired_element)
+    
+    return paired_list
+
+
+import numpy as np
+from scipy.spatial.distance import cosine
+import requests
+
+# 配置vLLM Server地址（根据你的实际部署修改，默认通常是这个）
+VLLM_EMBEDDING_API_URL = "http://localhost:8081/v1/embeddings"
+
+def get_qwen3_embeddings(texts: list[str]) -> list[np.ndarray]:
+    """
+    通过vLLM Server获取Qwen3 Embedding向量
+    :param texts: 待编码的字符串列表
+    :return: 每个文本对应的Embedding向量列表（np.ndarray格式）
+    """
+    if not texts:
         return []
     
-    raw_tr_content = tr_match.group(1)
+    # 构造vLLM Embedding API请求体（符合vLLM API规范）
+    request_payload = {
+        "input": texts,
+        "model": "/nfsdata/yiao/model/Qwen3-Embedding-0.6B"  # 替换为你的Qwen3 Embedding模型名称，确保vLLM已加载
+    }
     
-    # 步骤2：提取 result 字段的值
-    result_pattern = r'"result"\s*:\s*"(.*?)"(?=})'
-    result_match = re.search(result_pattern, raw_tr_content, re.DOTALL)
-    if not result_match:
-        # 兼容单引号情况
-        result_pattern_single = r"'result'\s*:\s*'(.*?)'(?=})"
-        result_match = re.search(result_pattern_single, raw_tr_content, re.DOTALL)
-        if not result_match:
-            print("错误（extract_tool_response_docs）：未找到 result 字段或格式不匹配")
-            return []
+    try:
+        # 发送POST请求获取Embedding
+        response = requests.post(VLLM_EMBEDDING_API_URL, json=request_payload)
+        response.raise_for_status()  # 捕获HTTP请求错误
+        result = response.json()
+        
+        # 提取Embedding向量并转为np.ndarray（方便后续计算相似度）
+        embeddings = [np.array(item["embedding"], dtype=np.float32) for item in result["data"]]
+        return embeddings
     
-    # 还原转义字符并清理原始 result 内容
-    result_content = (
-        result_match.group(1)
-        .strip()
-        .replace("\\n", "\n")  # 还原换行符
-        .replace('\\"', '"')   # 还原转义双引号
-    )
+    except Exception as e:
+        print(f"获取Qwen3 Embedding失败：{str(e)}")
+        return []
     
-    # 步骤3：匹配完整的 Doc 片段（保留 Doc X 标识，核心修改）
-    # 正则说明：
-    # - Doc \d+ \(Title: .*?\)  匹配 "Doc X (Title: ...)" 开头
-    # - .*?                     非贪婪匹配后续所有内容
-    # - (?=Doc \d+ \(Title: |$) 终止条件：下一个 Doc 开头 或 文本结束
-    doc_pattern = r'(Doc \d+ \(Title: .*?\)\n.*?)(?=Doc \d+ \(Title: |$)'
-    doc_matches = re.findall(doc_pattern, result_content, re.DOTALL)
-    
-    # 步骤4：清理每个 Doc 内容的首尾空白，生成最终列表（长度=实际Doc数）
-    doc_list = [doc.strip() for doc in doc_matches]
-    
-    return doc_list
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """
+    计算两个Embedding向量的余弦相似度（取值范围[0,1]，值越大相关性越高）
+    :param vec1: 第一个向量
+    :param vec2: 第二个向量
+    :return: 余弦相似度值
+    """
+    # 避免零向量导致计算错误
+    if np.linalg.norm(vec1) == 0 or np.linalg.norm(vec2) == 0:
+        return 0.0
+    # 余弦相似度 = 1 - 余弦距离（scipy的cosine返回的是距离）
+    return 1 - cosine(vec1, vec2)
+def compute_correlation(contexts, response_str, similarity_threshold: float = 0.8):
+    recall_contexts = extract_paired_tool_data(response_str)
 
+    articles = []
+    for i in range(len(recall_contexts)):
+        for j in recall_contexts[i][1]:
+            articles.append(j)
 
+    # 步骤2：获取两个列表的Qwen3 Embedding
+    contexts_embeddings = get_qwen3_embeddings(contexts)
+    recall_embeddings = get_qwen3_embeddings(articles)
 
-def compute_correlation(contexts, response_str):
-    recall_contexts = extract_tool_response_docs(response_str)
-    import pdb; pdb.set_trace()
-    print(recall_contexts)
-    print(contexts)
-    return contexts
+    # 边界处理：空列表直接返回结果
+    if not contexts:
+        return {
+            "coverage_rate": 0,  # 原始列表为空，默认覆盖度100%
+            "avg_similarity": 0.0,
+            "recall_contexts": articles,
+            "contexts": contexts,
+            "match_details": []
+        }
+    if not articles:
+        return {
+            "coverage_rate": 0.0,  # 无召回结果，覆盖度0%
+            "avg_similarity": 0.0,
+            "recall_contexts": articles,
+            "contexts": contexts,
+            "match_details": []
+        }
+    
+    
+    # 边界处理：Embedding获取失败
+    if len(contexts_embeddings) != len(contexts) or len(recall_embeddings) != len(articles):
+        print("警告：Embedding获取不完整，无法准确计算相关性")
+        return {
+            "coverage_rate": 0.0,
+            "avg_similarity": 0.0,
+            "recall_contexts": articles,
+            "contexts": contexts,
+            "match_details": []
+        }
+    
+    # 步骤3：计算覆盖度和平均相似度
+    match_details = []  # 存储每个context的匹配详情
+    covered_count = 0  # 被覆盖的context数量
+    total_max_similarity = 0.0  # 所有context的最大相似度总和
+    
+    for idx, (context, ctx_emb) in enumerate(zip(contexts, contexts_embeddings)):
+        # 计算当前context与所有recall_context的相似度，取最大值
+        max_sim = 0.0
+        best_match_recall = None
+        
+        for recall_idx, (recall_ctx, recall_emb) in enumerate(zip(articles, recall_embeddings)):
+            sim = cosine_similarity(ctx_emb, recall_emb)
+            if sim > max_sim:
+                max_sim = sim
+                best_match_recall = recall_ctx
+        
+        # 判定是否被覆盖
+        is_covered = max_sim >= similarity_threshold
+        if is_covered:
+            covered_count += 1
+        total_max_similarity += max_sim
+        
+        # 记录匹配详情
+        match_details.append({
+            "context": context,
+            "best_match_recall": best_match_recall,
+            "max_similarity": round(max_sim, 4),
+            "is_covered": is_covered
+        })
+    
+    # 计算最终指标
+    coverage_rate = covered_count / len(contexts)  # 覆盖率（核心指标，体现覆盖效果）
+    avg_similarity = total_max_similarity / len(contexts)  # 平均相似度（体现匹配质量）
+    
+    # 打印调试信息（保留你的原有打印逻辑）
+    print("=== 召回列表 ===")
+    for ctx in articles:
+        print(ctx)
+    print("\n=== 原始上下文列表 ===")
+    for ctx in contexts:
+        print(ctx)
+    print(f"\n=== 评估结果 ===")
+    print(f"覆盖率：{coverage_rate:.2%}（{covered_count}/{len(contexts)} 个原始上下文被覆盖）")
+    print(f"平均相似度：{avg_similarity:.4f}")
+    
+    # 返回完整结果（方便后续进一步处理）
+    return {
+        "coverage_rate": coverage_rate,
+        "avg_similarity": avg_similarity,
+        "recall_contexts": articles,
+        "contexts": contexts,
+        "match_details": match_details,
+        "similarity_threshold": similarity_threshold
+    }
 
 
 # <think>
@@ -365,7 +531,16 @@ def main():
     <think>
     Okay, let's break this down. The user asked, "who sings 'i just died in your arms'?" The search results mention a song by Cutting Crew. The songs are from 1986, so the current answer is likely to be the band. The final answer should state the artist. The response included the artist's name and the band's details. So, wrapping it up, the answer is the band Cutting Crew.
     </think>
-
+    <tool_call>
+    {"name": "search", "arguments": {"query_list": ["i just died in your arms"]}}
+    </tool_call>user
+    <tool_response>
+    {"result": "Doc 1 (Title: \"(I Just) Died in Your Arms\")\n(I Just) Died in Your Arms \"\"(I Just) Died in Your Arms\"\" is a"}
+    </tool_response>
+    assistant
+    <think>
+    The user asked, "who sings 'i just died in your arms'?" The search results mention a song by Cutting Crew. The songs are from 1986, so the current answer is likely to be the band. The final answer should state
+    </think>
     <answer>Cutting Crew</answer>
     """
     print(is_valid_sequence(test_str))

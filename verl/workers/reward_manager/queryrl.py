@@ -84,9 +84,16 @@ class QueryRLRewardManager(AbstractRewardManager):
             score = {}
             score['format_score'] = int(is_valid_sequence(response_str)[0] == True)
             score['ans_score'] = compute_score_em(solution_str=response_str, ground_truth={'target': ground_truth})
-            score['correlation'] = compute_correlation(contexts, response_str)
-            breakpoint()
-            score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score']
+            score['correlation'] = 0.0
+            if score['format_score'] > 0.0:
+                correlation_result = compute_correlation(contexts, response_str)
+                if isinstance(correlation_result, dict):
+                    score['correlation'] = float(correlation_result['avg_similarity'])
+                else:
+                    # 当compute_correlation返回非字典类型（如0）时的处理
+                    score['correlation'] = 0.0
+            # breakpoint()
+            score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score'] + 0.5 * score['correlation']
 
             if isinstance(score, dict):
                 reward = score["score"]
