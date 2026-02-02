@@ -102,7 +102,6 @@ class HermesToolParser(ToolParser):
 
         # remaing text exclude tool call tokens
         content = self.tool_call_regex.sub("", text)
-
         return content, function_calls
 
 

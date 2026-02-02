@@ -11,22 +11,27 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 
-TRAIN_DATA="$HOME/data/searchR1_processed_direct/train.parquet"
-VAL_DATA="$HOME/data/searchR1_processed_direct/test.parquet"
+TRAIN_DATA="/nfsdata/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/train.parquet"
+VAL_DATA="/nfsdata/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/test.parquet"
 
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
+MODEL="/nfsdata/yiao/model/Qwen3-0.6B"
+trainer_project_name='search_r1_like'
+trainer_experiment_name="qwen3-4b-PubMedQA"
+CKPTS_DIR="$MODEL/ckpts/$trainer_project_name/$trainer_experiment_name"
 
-
-
-python3 -m verl.trainer.main_ppo \
+export HYDRA_FULL_ERROR=1  # 启用完整错误栈跟踪，定位IndentationError
+CUDA_VISIBLE_DEVICES=6,7 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='search_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
+    reward_model.reward_manager=queryrl \
+    reward_model.use_reward_loop=False \
     data.train_batch_size=16 \
     data.val_batch_size=4 \
     data.max_prompt_length=4096 \
-    data.max_response_length=3000 \
-    actor_rollout_ref.model.path=/nfsdata/yiao/model/Qwen3-0.6B \
+    data.max_response_length=4096 \
+    actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -44,8 +49,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-    actor_rollout_ref.rollout.n=5 \
-    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
+    actor_rollout_ref.rollout.n=3 \
+    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
@@ -53,7 +58,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.val_before_train=False \
     trainer.logger='["console","wandb"]' \
     trainer.project_name='search_r1_like_async_rl' \
-    trainer.experiment_name='qwen3-0.6b-instruct_function_rm-search-async-sgl-multi-w-searchtool-verify-n16' \
+    trainer.experiment_name='qwen3-8b-search-async-sgl-multi-w-searchtool-verify-n16' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
@@ -62,5 +67,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_files="$VAL_DATA"  \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
+    actor_rollout_ref.rollout.multi_turn.max_tool_response_length=4096 \
+    trainer.default_local_dir="$CKPTS_DIR" \
     trainer.total_epochs=1 $@
 

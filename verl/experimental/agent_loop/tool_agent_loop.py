@@ -436,7 +436,7 @@ class ToolAgentLoop(AgentLoopBase):
                 await tool.release(instance_id)
 
         tool_response_text = tool_execution_response.text
-        if tool_response_text and len(tool_response_text) > self.max_tool_response_length:
+        if False and tool_response_text and len(tool_response_text) > self.max_tool_response_length:
             if self.tool_response_truncate_side == "left":
                 tool_response_text = tool_response_text[: self.max_tool_response_length] + "...(truncated)"
             elif self.tool_response_truncate_side == "right":

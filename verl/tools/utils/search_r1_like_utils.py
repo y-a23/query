@@ -63,6 +63,8 @@ def call_search_api(
 
     last_error = None
 
+    logger.info(f"search {payload} to {retrieval_service_url}")
+                
     for attempt in range(MAX_RETRIES):
         try:
             logger.info(

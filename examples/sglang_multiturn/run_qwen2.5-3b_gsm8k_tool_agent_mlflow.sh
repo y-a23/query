@@ -18,7 +18,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=/nfsdata/yiao/model/Qwen3-0.6B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -38,20 +38,23 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.trace.backend=mlflow \
+    actor_rollout_ref.rollout.trace.backend=wandb \
     actor_rollout_ref.rollout.trace.token2text=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger='["console","mlflow"]' \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name='gsm8k_tool-agent' \
     trainer.experiment_name='qwen2.5-3b_function_rm-gsm8k-sgl-tool-agent-verify-n16' \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
-    trainer.test_freq=20 \
-    trainer.total_training_steps=2 \
+    trainer.test_freq=2 \
+    trainer.val_before_train=True \
+    trainer.total_training_steps=20 \
     data.train_files=$HOME/data/gsm8k/train.parquet \
     data.val_files=$HOME/data/gsm8k/test.parquet \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/gsm8k_tool_config.yaml" \
     trainer.total_epochs=15 $@
 

@@ -1416,6 +1416,7 @@ class RayPPOTrainer:
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
+                    # breakpoint()
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm and "rm_scores" not in batch.batch.keys():
@@ -1435,6 +1436,16 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
                                 batch, reward_fn=self.reward_fn, return_dict=False
                             )
+
+                        reward_metrics = {
+                            "acc/reward/mean": reward_tensor.mean().item(),
+                            "acc/reward/max": reward_tensor.max().item(),
+                            "acc/reward/min": reward_tensor.min().item(),
+                        }
+
+                        metrics.update(reward_metrics)
+                    
+                    # breakpoint()
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)

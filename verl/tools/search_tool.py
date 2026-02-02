@@ -178,7 +178,7 @@ class SearchTool(BaseTool):
         self.topk = config.get("topk", 3)
         if self.retrieval_service_url == "":
             raise ValueError("retrieval_service_url is not set")
-
+        print(f"Initializing SearchTool with retrieval service URL: {self.retrieval_service_url}")
         logger.info(f"Initialized SearchTool with config: {config}")
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
@@ -223,6 +223,7 @@ class SearchTool(BaseTool):
             concurrent_semaphore=None,  # Ray handles concurrency control
             timeout=timeout,
         )
+        logger.info(f"Search result for instance {instance_id}: {result_text}")
         logger.debug(f"Search result for instance {instance_id}: {result_text}")
         return result_text, metadata
 
