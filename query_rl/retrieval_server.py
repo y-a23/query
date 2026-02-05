@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.db_dir = "/nfsdata/yiao/medRAG"
-    retrieval_system = RetrievalSystem(args.retriever_name, args.corpus_name, args.db_dir, cache=False, HNSW=False)
+    retrieval_system = RetrievalSystem(args.retriever_name, args.corpus_name, args.db_dir, cache=False, HNSW=True)
     # 1) Build a config (could also parse from arguments).
     #    In real usage, you'd parse your CLI arguments or environment variables.
     config = Config(

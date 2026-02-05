@@ -1436,7 +1436,8 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
                                 batch, reward_fn=self.reward_fn, return_dict=False
                             )
-
+                        breakpoint()
+                        breakpoint()
                         reward_metrics = {
                             "acc/reward/mean": reward_tensor.mean().item(),
                             "acc/reward/max": reward_tensor.max().item(),

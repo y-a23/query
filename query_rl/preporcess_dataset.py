@@ -44,6 +44,21 @@ DEFAULT_USER_CONTENT_PREFIX = (
     "For example, <answer> Beijing </answer>. Question: "
 )
 
+DEFAULT_USER_CONTENT_PREFIX = (
+    "Follow this strict protocol to answer the question:\n"
+    "1. Internal Reasoning: When you receive the question or new search results, you must first reason inside <think> and </think> . "
+    "You can use both your own knowledge and the provided search results together, but do not fabricate facts. "
+    "Base your judgment on overall evidence, not just fragments.\n"
+    "2. Tool Usage: If you lack key information to answer reliably and clearly, you must call the search tool. "
+    "Search results are provided between <tool_response> and </tool_response>. You can search multiple times if needed.\n"
+    "3. Final Answer: When you have enough information (from knowledge or search), give the final answer. "
+    "Wrap it strictly between <answer> and </answer> with no extra reasoning inside. "
+    "Use appropriate confidence: definite only when supported strongly; use 'maybe' when evidence is partial.\n"
+    "Example1:  <answer> yes </answer> .\n"
+    "Example2:  <answer> maybe </answer> .\n"
+    "Example3:  <answer> no </answer> .\n"
+    "Question: "
+)
 def process_single_row(row, current_split_name, row_index):
     """
     Process a single row of data for SearchR1-like format.
@@ -111,7 +126,7 @@ def main():
     os.makedirs(local_save_dir, exist_ok=True)
 
     file_dir = '/nfsdata/yiao/PubMedQA/pqa_labeled/split'
-    split = 'test'
+    split = 'train'
     processed_files = []
 
     logger.info(f"Processing {split} split...")

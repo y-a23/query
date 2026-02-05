@@ -199,8 +199,10 @@ def construct_index(index_dir, model_name, h_dim=768, HNSW=False, M=32, use_gpu=
             index.add(curr_embed)
             with open(os.path.join(index_dir, "metadatas.jsonl"), 'a+') as f:
                 f.write("\n".join([json.dumps({'index': i, 'source': fname.replace(".npy", "")}) for i in range(len(curr_embed))]) + '\n')
-
-    faiss.write_index(index, os.path.join(index_dir, "faiss.index"))
+    if HNSW==False:
+        faiss.write_index(index, os.path.join(index_dir, "faiss.index"))
+    else:
+        faiss.write_index(index, os.path.join(index_dir, "faiss_hnsw.index"))
     return index
 
 
@@ -228,8 +230,13 @@ class Retriever:
                 os.system("python -m pyserini.index.lucene --collection JsonCollection --input {:s} --index {:s} --generator DefaultLuceneDocumentGenerator --threads 16".format(self.chunk_dir, self.index_dir))
                 self.index = LuceneSearcher(os.path.join(self.index_dir))
         else:
-            if os.path.exists(os.path.join(self.index_dir, "faiss.index")):
+            if HNSW == False and os.path.exists(os.path.join(self.index_dir, "faiss.index")):
+                print("Loading faiss index from {}".format(self.index_dir))
                 self.index = faiss.read_index(os.path.join(self.index_dir, "faiss.index"))
+                self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
+            elif HNSW == True and os.path.exists(os.path.join(self.index_dir, "faiss_hnsw.index")):
+                print("Loading faiss index from {}".format(self.index_dir))
+                self.index = faiss.read_index(os.path.join(self.index_dir, "faiss_hnsw.index"))
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
             else:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
@@ -257,7 +264,11 @@ class Retriever:
             indices = [{"source": '_'.join(h.docid.split('_')[:-1]), "index": eval(h.docid.split('_')[-1])} for h in hits]
         else:
             with torch.no_grad():
+                import time
+                start_time = time.time()
                 query_embed = self.embedding_function.encode(question, **kwarg)
+                end_time = time.time()
+                print(f"Embedding time: {end_time - start_time:.4f} seconds")
             res_ = self.index.search(query_embed, k=k)
             ids = ['_'.join([self.metadatas[i]["source"], str(self.metadatas[i]["index"])]) for i in res_[1][0]]
             indices = [self.metadatas[i] for i in res_[1][0]]
@@ -431,7 +442,7 @@ def main():
     corpus_names = args.corpus_name
     db_dir = "/nfsdata/yiao/medRAG"
     cache = db_dir
-    retrieval_system = RetrievalSystem(retriever_names, corpus_names, db_dir)
+    retrieval_system = RetrievalSystem(retriever_names, corpus_names, db_dir, HNSW=True)
     retrieved_snippets, scores = retrieval_system.retrieve("These may include abdominal pain, achiness in the jaw or back, nausea, shortness of breath, or simply fatigue.", k=32)
     import pdb; pdb.set_trace()
     print(retrieved_snippets)

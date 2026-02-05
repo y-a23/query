@@ -6,6 +6,7 @@ tools:
       rate_limit: 12
       timeout: 300
       type: native
+      enable_global_rate_limit: False
     tool_schema:
       type: function
       function:
