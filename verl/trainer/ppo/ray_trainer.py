@@ -1436,12 +1436,13 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
                                 batch, reward_fn=self.reward_fn, return_dict=False
                             )
-                        breakpoint()
-                        breakpoint()
                         reward_metrics = {
-                            "acc/reward/mean": reward_tensor.mean().item(),
+                            "acc/reward/mean": reward_tensor.sum().item() / reward_tensor.shape[0],
                             "acc/reward/max": reward_tensor.max().item(),
                             "acc/reward/min": reward_tensor.min().item(),
+                            "acc/reward/format_score_mean": float(sum(reward_extra_infos_dict['format_score'])) / len(reward_extra_infos_dict['format_score']),
+                            "acc/reward/ans_score_mean": float(sum(reward_extra_infos_dict['ans_score'])) / len(reward_extra_infos_dict['ans_score']),
+                            "acc/reward/correlation_mean": float(sum(reward_extra_infos_dict['correlation'])) / len(reward_extra_infos_dict['correlation']),
                         }
 
                         metrics.update(reward_metrics)

@@ -11,17 +11,18 @@ PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 
 
-TRAIN_DATA="/nfsdata/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/train.parquet"
-VAL_DATA="/nfsdata/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/test.parquet"
+TRAIN_DATA="/nfsdata3/yiao/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/train.parquet"
+VAL_DATA="/nfsdata3/yiao/yiao/PubMedQA/pqa_labeled/split/preprocessed_data/test.parquet"
 
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
-MODEL="/nfsdata/yiao/model/Qwen3-4B"
-trainer_project_name='search_r1_like'
+MODEL="/nfsdata3/yiao/yiao/model/Qwen3-4B"
+trainer_project_name='queryrl'
 trainer_experiment_name="qwen3-4b-PubMedQA"
 CKPTS_DIR="$MODEL/ckpts/$trainer_project_name/$trainer_experiment_name"
 
 export HYDRA_FULL_ERROR=1  # 启用完整错误栈跟踪，定位IndentationError
-CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
+# 回退到稳定的bfloat16配置
+CUDA_VISIBLE_DEVICES=6,7 python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='search_multiturn_grpo' \
     algorithm.adv_estimator=grpo \
@@ -31,12 +32,13 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     data.val_batch_size=4 \
     data.max_prompt_length=4096 \
     data.max_response_length=4096 \
+    # 移除fp16配置，使用默认的bfloat16
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -59,7 +61,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="$trainer_project_name" \
     trainer.experiment_name='qwen3-8b-search-async-sgl-multi-w-searchtool-verify-n16' \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
@@ -70,4 +72,3 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=4096 \
     trainer.default_local_dir="$CKPTS_DIR" \
     trainer.total_epochs=50 $@
-

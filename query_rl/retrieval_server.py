@@ -114,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--corpus_name", type=str, default="PubMed", help="Name of the corpus.")
 
     args = parser.parse_args()
-    args.db_dir = "/nfsdata/yiao/medRAG"
+    args.db_dir = "/nfsdata3/yiao/yiao/medRAG"
     retrieval_system = RetrievalSystem(args.retriever_name, args.corpus_name, args.db_dir, cache=False, HNSW=True)
     # 1) Build a config (could also parse from arguments).
     #    In real usage, you'd parse your CLI arguments or environment variables.

@@ -252,7 +252,7 @@ def get_qwen3_embeddings(texts: list[str]) -> list[np.ndarray]:
     # 构造vLLM Embedding API请求体（符合vLLM API规范）
     request_payload = {
         "input": texts,
-        "model": "/nfsdata/yiao/model/Qwen3-Embedding-0.6B"  # 替换为你的Qwen3 Embedding模型名称，确保vLLM已加载
+        "model": "/nfsdata3/yiao/yiao/model/Qwen3-Embedding-0.6B"  # 替换为你的Qwen3 Embedding模型名称，确保vLLM已加载
     }
     
     try:

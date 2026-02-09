@@ -22,11 +22,11 @@ corpus_names = {
 
 retriever_names = {
     "BM25": ["bm25"],
-    "Contriever": ["/nfsdata/yiao/model/contriever"],
+    "Contriever": ["/nfsdata3/yiao/yiao/model/contriever"],
     "SPECTER": ["allenai/specter"],
     "MedCPT": ["ncbi/MedCPT-Query-Encoder"],
     "RRF-2": ["bm25", "ncbi/MedCPT-Query-Encoder"],
-    "RRF-4": ["bm25", "/nfsdata/yiao/model/contriever", "/nfsdata/yiao/model/specter2_base", "/nfsdata/yiao/model/MedCPT-Query-Encoder"]
+    "RRF-4": ["bm25", "/nfsdata3/yiao/yiao/model/contriever", "/nfsdata3/yiao/yiao/model/specter2_base", "/nfsdata3/yiao/yiao/model/MedCPT-Query-Encoder"]
 }
 
 def ends_with_ending_punctuation(s):
