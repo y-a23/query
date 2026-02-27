@@ -1444,6 +1444,7 @@ class RayPPOTrainer:
                             "acc/reward/ans_score_mean": float(sum(reward_extra_infos_dict['ans_score'])) / len(reward_extra_infos_dict['ans_score']),
                             "acc/reward/correlation_mean": float(sum(reward_extra_infos_dict['correlation'])) / len(reward_extra_infos_dict['correlation']),
                         }
+                        
 
                         metrics.update(reward_metrics)
                     

@@ -208,6 +208,9 @@ def extract_all_tool_response_docs(test_str):
     
     return all_doc_lists
 
+
+
+
 def extract_paired_tool_data(test_str):
     """
     整合函数：提取文本中所有成对的 <tool_call> 和 <tool_response>，返回成对列表
@@ -512,6 +515,37 @@ def is_valid_sequence(response_str: str) -> Tuple[bool, str]:
     # ========== 所有检查通过 ==========
     return True, "格式校验通过：标签闭合完整，序列逻辑合法"
 
+def extract_all_titles(doc_list):
+    all_titles = []
+    for doc in doc_list:
+        # 匹配到右括号 ) 或换行符 \n 为止
+        match = re.search(r'Doc \d+ \(Title: ([^)\n]+)', doc)
+        if match:
+            all_titles.append(match.group(1).strip())
+    return all_titles
+def get_all_titles(response_str: str):
+    ret = []
+    recall_contexts = extract_paired_tool_data(response_str)
+    # import pdb; pdb.set_trace()
+    for i, recall_context in enumerate(recall_contexts):
+        titles = extract_all_titles(recall_context[1])
+        ret = ret + titles
+    return ret
+
+def get_search_score(response_str: str, ground_truth_title: str):
+    titles = get_all_titles(response_str)
+    # if len(titles) != 0:
+    #     print("====================search======================")
+    #     print(f"titles: {titles}")
+    #     print(f"ground_truth_title: {ground_truth_title}")
+
+    for title in titles:
+        if ground_truth_title in title or title in ground_truth_title:
+            return 1.0
+    if ground_truth_title in titles:
+        return 1.0
+    else:
+        return 0.0
 
 def main():
     test_str = """
@@ -547,7 +581,144 @@ def main():
     print(compute_score_em(test_str, {"target": "Cutting crew"}))
 
     contexts = ['We sought to develop a more reliable structured implicit chart review instrument for use in assessing the quality of care for chronic disease and to examine if ratings are more reliable for conditions in which the evidence base for practice is more developed.', 'We conducted a reliability study in a cohort with patient records including both outpatient and inpatient care as the objects of measurement. We developed a structured implicit review instrument to assess the quality of care over one year of treatment. 12 reviewers conducted a total of 496 reviews of 70 patient records selected from 26 VA clinical sites in two regions of the country. Each patient had between one and four conditions specified as having a highly developed evidence base (diabetes and hypertension) or a less developed evidence base (chronic obstructive pulmonary disease or a collection of acute conditions). Multilevel analysis that accounts for the nested and cross-classified structure of the data was used to estimate the signal and noise components of the measurement of quality and the reliability of implicit review.', 'For COPD and a collection of acute conditions the reliability of a single physician review was quite low (intra-class correlation = 0.16-0.26) but comparable to most previously published estimates for the use of this method in inpatient settings. However, for diabetes and hypertension the reliability is significantly higher at 0.46. The higher reliability is a result of the reviewers collectively being able to distinguish more differences in the quality of care between patients (p<0.007) and not due to less random noise or individual reviewer bias in the measurement. For these conditions the level of true quality (i.e. the rating of quality of care that would result from the full population of physician reviewers reviewing a record) varied from poor to good across patients.']
-    print(compute_correlation(contexts, test_str))
+    # print(compute_correlation(contexts, test_str))
+    recall_contexts = extract_paired_tool_data(test_str)
+    print(recall_contexts[0][1])
+    print(get_all_titles(test_str))
+
+# 回答包含 答案
+import re
+import string
+
+def normalize_text(text):
+    """文本标准化：小写、去标点、合并空格"""
+    text = text.lower()
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    text = ' '.join(text.split())
+    return text.strip()
+
+def is_answer_correct(model_answer, ground_truth_list, method='contains'):
+    """
+    判断模型回答是否与ground_truth匹配
+    
+    参数:
+        model_answer: str, 模型生成的回答
+        ground_truth_list: list[str], 正确答案的多种表述
+        method: str, 匹配策略
+            - 'exact': 完全精确匹配
+            - 'contains': 包含匹配（推荐）
+            - 'keyword': 提取核心关键词匹配
+    
+    返回:
+        bool: 是否匹配成功
+    """
+    if not model_answer or not ground_truth_list:
+        return False
+    
+    normalized_answer = normalize_text(model_answer)
+    
+    for gt in ground_truth_list:
+        normalized_gt = normalize_text(gt)
+        
+        if method == 'exact':
+            if normalized_answer == normalized_gt:
+                return True
+        elif method == 'contains':
+            # 双向包含：答案包含GT 或 GT包含答案
+            if normalized_gt in normalized_answer or normalized_answer in normalized_gt:
+                return True
+        elif method == 'keyword':
+            # 提取GT的核心词（如"TNM"）进行匹配
+            keywords = [w for w in normalized_gt.split() if len(w) > 2 or w.upper() == w]
+            if keywords and all(kw in normalized_answer for kw in keywords):
+                return True
+    
+    return False
+
+def test_is_answer_correct():
+    model_answer = "The answer is 42."
+    ground_truth_list = ['TNM staging', 'TNM classification', 
+                         'TNM system', 'TNM staging system', 
+                         'TNM', 'Tumor Node Metastasis staging', 
+                         'Tumor-Node-Metastasis staging',
+                           'Tumor, Node, Metastasis staging', 
+                           'Tumor Node Metastasis classification', 
+                           'Tumor-Node-Metastasis classification', 
+                           'Tumor, Node, Metastasis classification', 
+                           'Tumor Node Metastasis system']
+    solution_str = (
+        "<think>\n"
+        "Okay, let's see. The question is asking which staging system is used to classify "
+        "gastric cancer based on tumor size, lymph node involvement, and metastasis. "
+        "I need to recall the standard staging systems for cancers.\n\n"
+        "First, I remember that cancer staging is typically done using the TNM system. "
+        "TNM stands for Tumor, Node, and Metastasis. "
+        "This system is widely used by the American Joint Committee on Cancer (AJCC) and the International "
+        "Union Against Cancer (UICC). \n\n"
+        "For gastric cancer specifically, the AJCC has developed a staging "
+        "system that builds on the TNM framework. "
+        "The T category refers to the size and depth of the tumor, N refers to regional lymph node involvement, "
+        "and M refers to distant metastasis. So, the AJCC stage is based on these three factors.\n\n"
+        "I should verify if there's another system used, but I think the AJCC is the primary one. "
+        "The UICC also uses a similar system, but the AJCC is more commonly referenced in medical literature. "
+        "Additionally, the TNM system is the standard for many cancers, including gastric. "
+        "So the answer should be the AJCC TNM staging system.\n</think>\n\n"
+        "<answer> "
+        "The staging system used to classify the extent of gastric cancer based on tumor size, "
+        "lymph node involvement, and metastasis is the American Joint Committee on Cancer (AJCC) TNM staging system. "
+        "This system categorizes cancer by T (tumor size/depth), N (lymph node involvement), "
+        "and M (metastasis) to determine the stage.</answer>"
+    )
+    answer = extract_solution(solution_str=solution_str)
+    # import pdb; pdb.set_trace()
+    print(is_answer_correct(answer, ground_truth_list))
+
+def test_get_all_titles():
+    response_str = """<think>
+Okay, so the user is asking about a nuclear medicine imaging modality used to evaluate lung perfusion abnormalities in patients with Behçet's disease. Let me start by recalling what I know about Behçet's disease. It's a systemic inflammatory disorder that can affect various parts of the body, including the lungs. Lung involvement can lead to issues like vasculitis or thrombosis, which might cause perfusion abnormalities.
+
+Nuclear medicine imaging techniques used for perfusion studies typically include methods like perfusion CT, perfusion MRI, or maybe even radionuclide imaging. However, the question specifically mentions nuclear medicine, so I should focus on that. Common nuclear medicine procedures include single-photon emission computed tomography (SPECT) and positron emission tomography (PET). But which one is used for lung perfusion?
+
+Wait, in the context of lung perfusion, a common test is a perfusion scan, which can be done with technetium-99m. For example, a perfusion scan using technetium-99m labeled red blood cells (Tc-99m RBC) is used to assess blood flow in the lungs. This is often done in patients with suspected pulmonary embolism, but could it be relevant here?
+
+But Behçet's disease can cause vasculitis, which might lead to lung ischemia. So maybe a perfusion scan is used to check for reduced blood flow. However, I'm not entirely sure if this is the standard approach for Behçet's. I should verify if there's a specific imaging modality commonly recommended for this scenario.
+
+Alternatively, maybe the answer is a lung perfusion scan using SPECT. But I need to confirm if this is used in the context of Behçet's disease. Since I might not have the exact information, I should use the search tool to find the answer. Let me check the available functions. The search function allows me to query for information. So I should call the search function with the query "nuclear medicine imaging modality for lung perfusion in Behçet's disease" to get the most relevant information.
+</think>
+
+<tool_call>
+{"name": "search", "arguments": {"query_list": ["nuclear medicine imaging modality for lung perfusion in Behçet's disease"]}}
+</tool_call>
+
+user
+
+<tool_response>
+{"result": "Doc 1 (Title: 99Tcm-MAA lung scintigraphy in patients with Behçet's disease: its value and correlation with clinical course and other diagnostic modalities.)
+Behçet's disease, initially described as local vasculitis involving the oral, genital mucosa and eyes, can affect many organ systems with a varying clinical course. Pulmonary lesions associated with Behçet's disease are rare and reported to have a prevalence of 1.0-7.7%. In this prospective study, 29 patients aged 16-60 years (mean +/- s: 34 +/- 10.5) were investigated for pulmonary involvement with direct radiography, computerized tomography (CT) and intravenous digital subtraction angiography. Lung scintigraphy was also performed to determine its diagnostic value. In addition, patients had a fibreoptic bronchoscopic examination, spirometric test, carbon monoxide diffusion test and methacholine test. Of the 29 patients with Behçet's disease, 17 had pulmonary involvement. The diagnostic criteria for pulmonary vasculitis and tracheobronchial tree involvement were: (1) hilar vascular prominence or mass, new alveolar and reticulonodular infiltrates on chest X-ray; (2) aphthous lesions, bleeding ulcerations, inflamed mucosal appearance on bronchoscopy; (3) vascular thrombosis or aneurysms on CT; (4) occlusion or aneurysms of the main pulmonary arteries or its branches. The value of lung scintigraphy and its correlation with other imaging modalities were investigated to determine if a lung perfusion scan alone can be used to detect pulmonary involvement in Behçet's disease. Twenty-six patients were investigated with lung scintigraphy. Thirteen of 14 patients with lung involvement were identified. Perfusion lung scintigraphy provided true diagnostic information in 96% of our patients. In eight patients without pulmonary involvement, the lung scans were normal. Although DSA specifically demonstrates pulmonary aneurysms, it involves administration of contrast media and cannot show abnormalities distal to the third pulmonary arterial branches. Although vasculitis caused by collagen disorders is physiologically indistinguishable from pulmonary emboli, most perfusion defects resolve within 3 months, which can be used as a differential diagnostic criterion in the appropriate clinical setting. Therefore, pulmonary perfusion imaging can be used to screen patients suspected of having lung involvement, especially in the absence of thrombophlebitis. In patients with thrombophlebitis, a repeat examination at 3 months is recommended to differentiate pulmonary involvement from pulmonary embolism.
+
+Doc 2 (Title: Ventilation and perfusion magnetic resonance imaging of the lung.)
+A close interaction between the respiratory pump, pulmonary parenchyma and blood circulation is essential for a normal lung function. Many pulmonary diseases present, especially in their initial phase, a variable regional impairment of ventilation and perfusion. In the last decades various techniques have been established to measure the lung function. Besides the global pulmonary function tests (PFTs) imaging techniques gained increasing importance to detect local variations in lung function, especially for ventilation and perfusion assessment. Imaging modalities allow for a deeper regional insight into pathophysiological processes and enable improved planning of invasive procedures. In contrast to computed tomography (CT) and the nuclear medicine techniques, magnetic resonance imaging (MRI), as a radiation free imaging modality gained increasing importance since the early 1990 for the assessment of pulmonary function. The major inherent problems of lung tissue, namely the low proton density and the pulmonary and cardiac motion, were overcome in the last years by a constant progress in MR technology. Some MR techniques are still under development, a process which is driven by scientific questions regarding the physiology and pathophysiology of pulmonary diseases, as well as by the need for fast and robust clinically applicable imaging techniques as safe therapy monitoring tools. MRI can be considered a promising ionizing-free alternative to techniques like CT or nuclear medicine techniques for the evaluation of lung function. The goal of this article is to provide an overview on selected MRI techniques for the assessment of pulmonary ventilation and perfusion.
+
+Doc 3 (Title: Comparison of dynamic flat-panel detector-based chest radiography with nuclear medicine ventilation-perfusion imaging for the evaluation of pulmonary function: A clinical validation study.)
+Dynamic chest radiography (DCR) is a flat-panel detector (FPD)-based functional lung imaging technique capable of measuring temporal changes in radiographic lung density due to ventilation and perfusion. The aim of this study was to determine the diagnostic performance of DCR in the evaluation of pulmonary function based on changes in radiographic lung density compared to nuclear medicine lung scans. This study included 53 patients with pulmonary disease who underwent DCR and nuclear medicine imaging at our institution. Dynamic chest radiography was conducted using a dynamic FPD system to obtain sequential chest radiographs during one breathing cycle. The maximum change in the average pixel value (Δ<sub>max</sub>) was measured, and the percentage of Δ<sub>max</sub> in each lung region, calculated relative to the sum of all lung regions (Δ<sub>max</sub>%), was calculated for each factor (ventilation and perfusion). The Δ<sub>max</sub>% was compared with the accumulation of radioactive agents (radioactive agents%) on ventilation and perfusion scans in each lung and lung region using correlation coefficients and scatter plots. The ratio of ventilation to perfusion Δ<sub>max</sub>% was calculated and compared with nuclear medicine ventilation-perfusion (V/Q) findings in terms of sensitivity and specificity for V/Q mismatch in each lung region. There was a high correlation between Δ<sub>max</sub>% and radioactive agents% for each lung (Ventilation: r = 0.81, perfusion: r = 0.87). However, correlation coefficients were lower (0.37 to 0.80) when comparing individual lung regions, with the upper lung regions showing the lowest correlation coefficients. The sensitivity and specificity of DCR for V/Q mismatch were 63.3% (19/30) and 60.1% (173/288), respectively. Motion artifacts occasionally increased Δ<sub>max</sub>%, resulting in false negatives. Ventilation and perfusion Δ<sub>max</sub>% correlated reasonably with radioactive agents% on ventilation and perfusion scans. Although the regional correlations were lower and the detection performance for V/Q mismatch was not enough for clinical use at the moment, these results suggest the potential for DCR to be used as a functional imaging modality that can be performed without the use of radioactive contrast agents. Further technical improvement is required for the implementation of DCR-based V/Q studies."}
+</tool_response>
+
+assistant
+
+<think>
+Okay, let me process this. The user is asking about a nuclear medicine imaging modality used to evaluate lung perfusion in Behçet's disease. 
+
+From the search results, Doc 1 mentions that lung scintigraphy using 99Tcm-MAA (technetium-99m macroaggregated albumin) was used in patients with Behçet's disease. The study found that perfusion lung scintigraphy identified 13 out of 14 patients with lung involvement, with a high diagnostic accuracy. This suggests that lung scintigraphy is a method used here.
+
+Doc 2 talks about ventilation and perfusion MRI, but the question specifies nuclear medicine, so MRI might not be the answer. Doc 3 discusses dynamic chest radiography (DCR) compared to nuclear medicine scans, but again, DCR isn't nuclear medicine.
+
+So the key point is that lung scintigraphy, specifically with 99Tcm-MAA, is the nuclear medicine modality mentioned in the context of Behçet's disease for assessing lung perfusion. The other documents don't provide a direct answer related to nuclear medicine. Therefore, the answer should be lung scintigraphy using 99Tcm-MAA.
+</think>
+
+<answer> The nuclear medicine imaging modality used to evaluate lung perfusion abnormalities in patients with Behçet's disease is lung scintigraphy with 99Tcm-MAA (technetium-99m macroaggregated albumin). This technique was found to have high diagnostic accuracy in detecting pulmonary involvement in Behçet's disease, as demonstrated in a study where it identified 13 out of 14 patients with lung involvement. </answer>
+"""
+    titles = get_all_titles(response_str)
+    print(titles)
 
 if __name__ == "__main__":
-    main()
+    test_get_all_titles()

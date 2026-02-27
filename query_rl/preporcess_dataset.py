@@ -53,10 +53,6 @@ DEFAULT_USER_CONTENT_PREFIX = (
     "Search results are provided between <tool_response> and </tool_response>. You can search multiple times if needed.\n"
     "3. Final Answer: When you have enough information (from knowledge or search), give the final answer. "
     "Wrap it strictly between <answer> and </answer> with no extra reasoning inside. "
-    "Use appropriate confidence: definite only when supported strongly; use 'maybe' when evidence is partial.\n"
-    "Example1:  <answer> yes </answer> .\n"
-    "Example2:  <answer> maybe </answer> .\n"
-    "Example3:  <answer> no </answer> .\n"
     "Question: "
 )
 def process_single_row(row, current_split_name, row_index):
@@ -79,12 +75,13 @@ def process_single_row(row, current_split_name, row_index):
     # Extract ground truth from reward_model or fallback to golden_answers
     reward_model_data = row.get("reward_model")
     if isinstance(reward_model_data, dict) and "ground_truth" in reward_model_data:
-        ground_truth = reward_model_data.get("final_decision")
+        ground_truth = reward_model_data.get("golden_answers")
     else:
-        ground_truth = row.get("final_decision", [])
+        ground_truth = row.get("golden_answers", [])
 
     reward_model_data = {"ground_truth": ground_truth}
-    reward_model_data["context"] = row.get("context")
+    reward_model_data["paper_title"] = row.get("paper_title")
+    reward_model_data["pmid"] = row.get("pmid")
     # Process data source
     data_source_tagged = "PubMedQA"
 
@@ -109,14 +106,8 @@ def process_single_row(row, current_split_name, row_index):
             "data_source": data_source_tagged,
             "agent_name": "tool_agent",
             "prompt": prompt,
-            "ability": row.get("ability"),
             "reward_model": reward_model_data,
             "extra_info": extra_info,
-            "metadata": row.get("metadata"),
-            "context": row.get("context"),
-            "final_decision": row.get("final_decision"),
-            "pubid": row.get("pubid"),
-            "long_answer": row.get("long_answer"),
         }
     )
 

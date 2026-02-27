@@ -264,7 +264,6 @@ class SearchTool(BaseTool):
                 "total_results": metadata.get("total_results", 0),
                 "api_request_error": metadata.get("api_request_error"),
             }
-
             return ToolResponse(text=result_text), 0.0, metrics
 
         except Exception as e:

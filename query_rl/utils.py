@@ -9,6 +9,27 @@ import tqdm
 import numpy as np
 from transformers import AutoTokenizer, AutoModel
 
+import time
+from functools import wraps
+
+
+# 在你的子模块文件（比如 retriever.py）中
+import logging
+import time
+logger = logging.getLogger("RAG-System") # 必须和 LOGGER_NAME 一致
+
+# 耗时统计装饰器
+def timeit(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        logger.info(f"  [Time Stats] '{func.__name__}' took {end - start:.4f} seconds")
+        return result
+    return wrapper
+
+
 corpus_names = {
     "PubMed": ["pubmed"],
     "Textbooks": ["textbooks"],
@@ -24,8 +45,8 @@ retriever_names = {
     "BM25": ["bm25"],
     "Contriever": ["/nfsdata3/yiao/yiao/model/contriever"],
     "SPECTER": ["allenai/specter"],
-    "MedCPT": ["ncbi/MedCPT-Query-Encoder"],
-    "RRF-2": ["bm25", "ncbi/MedCPT-Query-Encoder"],
+    "MedCPT": ["/nfsdata3/yiao/yiao/model/MedCPT-Query-Encoder"],
+    "RRF-2": ["bm25", "/nfsdata3/yiao/yiao/model/MedCPT-Query-Encoder"],
     "RRF-4": ["bm25", "/nfsdata3/yiao/yiao/model/contriever", "/nfsdata3/yiao/yiao/model/specter2_base", "/nfsdata3/yiao/yiao/model/MedCPT-Query-Encoder"]
 }
 
@@ -196,6 +217,10 @@ def construct_index(index_dir, model_name, h_dim=768, HNSW=False, M=32, use_gpu=
     else:
         for fname in tqdm.tqdm(sorted(os.listdir(os.path.join(index_dir, "embedding")))):
             curr_embed = np.load(os.path.join(index_dir, "embedding", fname))
+            if "specter" not in model_name.lower():
+                norms = np.linalg.norm(curr_embed, axis=1, keepdims=True)
+                norms = np.where(norms == 0, 1, norms)  # 避免除零
+                curr_embed = curr_embed / norms
             index.add(curr_embed)
             with open(os.path.join(index_dir, "metadatas.jsonl"), 'a+') as f:
                 f.write("\n".join([json.dumps({'index': i, 'source': fname.replace(".npy", "")}) for i in range(len(curr_embed))]) + '\n')
@@ -251,7 +276,7 @@ class Retriever:
             else:
                 self.embedding_function = CustomizeSentenceTransformer(self.retriever_name, device="cuda" if torch.cuda.is_available() else "cpu")
             self.embedding_function.eval()
-
+    @timeit
     def get_relevant_documents(self, question, k=32, id_only=False, **kwarg):
         assert type(question) == str
         question = [question]
@@ -268,17 +293,26 @@ class Retriever:
                 start_time = time.time()
                 query_embed = self.embedding_function.encode(question, **kwarg)
                 end_time = time.time()
-                print(f"Embedding time: {end_time - start_time:.4f} seconds")
+                logger.info(f"Embedding time: {end_time - start_time:.4f} seconds")
+
+            faiss_start = time.perf_counter()
             res_ = self.index.search(query_embed, k=k)
+            faiss_end = time.perf_counter()
+            logger.info(f"    - [Sub-Step] FAISS Search: {faiss_end - faiss_start:.4f}s")
+
             ids = ['_'.join([self.metadatas[i]["source"], str(self.metadatas[i]["index"])]) for i in res_[1][0]]
             indices = [self.metadatas[i] for i in res_[1][0]]
 
         scores = res_[0][0].tolist()
-        
         if id_only:
             return [{"id":i} for i in ids], scores
         else:
-            return self.idx2txt(indices), scores
+            # 耗时点 3：磁盘 I/O，读取原始文本
+            txt_start = time.perf_counter()
+            txt_res = self.idx2txt(indices)
+            txt_end = time.perf_counter()
+            logger.info(f"    - [Sub-Step] idx2txt (Disk I/O): {txt_end - txt_start:.4f}s")
+            return txt_res, scores
 
     def idx2txt(self, indices): # return List of Dict of str
         '''
@@ -305,6 +339,7 @@ class RetrievalSystem:
         else:
             self.docExt = None
     
+    @timeit
     def retrieve(self, question, k=32, rrf_k=100, id_only=False):
         '''
             Given questions, return the relevant snippets from the corpus
@@ -322,6 +357,10 @@ class RetrievalSystem:
             k_ = max(k * 2, 100)
         else:
             k_ = k
+
+        # 遍历所有召回器和语料库
+        loop_start = time.perf_counter()
+
         for i in range(len(retriever_names[self.retriever_name])):
             texts.append([])
             scores.append([])
@@ -329,11 +368,24 @@ class RetrievalSystem:
                 t, s = self.retrievers[i][j].get_relevant_documents(question, k=k_, id_only=id_only)
                 texts[-1].append(t)
                 scores[-1].append(s)
+        loop_end = time.perf_counter()
+        logger.info(f"  [Process] All retrievers loops total: {loop_end - loop_start:.4f}s")
+        
+        # RRF 合并耗时
+        # import pdb; pdb.set_trace()
+        merge_start = time.perf_counter()
         texts, scores = self.merge(texts, scores, k=k, rrf_k=rrf_k)
+        merge_end = time.perf_counter()
+        logger.info(f"  [Process] Merge/RRF logic: {merge_end - merge_start:.4f}s")
+
         if self.cache:
+            ext_start = time.perf_counter()
             texts = self.docExt.extract(texts)
+            ext_end = time.perf_counter()
+            logger.info(f"  [Process] Doc Extraction (Cache): {ext_end - ext_start:.4f}s")
         return texts, scores
 
+    @timeit
     def merge(self, texts, scores, k=32, rrf_k=100):
         '''
             Merge the texts and scores from different retrievers
@@ -440,9 +492,9 @@ def main():
     args = parser.parse_args()
     retriever_names = args.retriever_names
     corpus_names = args.corpus_name
-    db_dir = "/nfsdata/yiao/medRAG"
+    db_dir = "/nfsdata3/yiao/yiao/medRAG"
     cache = db_dir
-    retrieval_system = RetrievalSystem(retriever_names, corpus_names, db_dir, HNSW=True)
+    retrieval_system = RetrievalSystem(retriever_names, corpus_names, db_dir, HNSW=True, cache=True)
     retrieved_snippets, scores = retrieval_system.retrieve("These may include abdominal pain, achiness in the jaw or back, nausea, shortness of breath, or simply fatigue.", k=32)
     import pdb; pdb.set_trace()
     print(retrieved_snippets)

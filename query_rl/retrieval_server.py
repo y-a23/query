@@ -17,6 +17,21 @@ from pydantic import BaseModel
 from utils import RetrievalSystem
 import time
 
+import time
+from functools import wraps
+
+
+# 耗时统计装饰器
+def timeit(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        logger.info(f"  [Time Stats] '{func.__name__}' took {end - start:.4f} seconds")
+        return result  # 确保返回原函数的结果
+    return wrapper
+
 #####################################
 # FastAPI server below
 #####################################
@@ -63,8 +78,18 @@ class QueryRequest(BaseModel):
 
 app = FastAPI()
 
+from fastapi import FastAPI
+from logger_config import setup_logging, logger, request_id_var
+import uuid
+import time
+
+app = FastAPI()
+
+# 启动时配置日志
+setup_logging()
+
 @app.post("/retrieve")
-def retrieve_endpoint(request: QueryRequest):
+async def retrieve_endpoint(request: QueryRequest):
     """
     Endpoint that accepts queries and performs retrieval.
     Input format:
@@ -74,13 +99,18 @@ def retrieve_endpoint(request: QueryRequest):
       "return_scores": true
     }
     """
-    start_time = time.time()
+    # 【关键点 1】进入请求立刻生成唯一 ID 并存入 ContextVar
+    rid = str(uuid.uuid4())[:8]
+    request_id_var.set(rid)
     
-    if not request.topk:
-        request.topk = config.retrieval_topk  # fallback to default
-    # Perform batch retrieval
+    start_time = time.perf_counter()
+    logger.info(f">>> Incoming API Request | Queries: {len(request.queries)}")
+
     resp = []
-    for query in request.queries:
+    for idx, query in enumerate(request.queries):
+        q_start = time.perf_counter()
+        
+        # 在子模块中，你也需要把 print 换成 logger.info
         results, scores = retrieval_system.retrieve(
             question=query,
             k=request.topk,
@@ -94,11 +124,13 @@ def retrieve_endpoint(request: QueryRequest):
             resp.append(combined)
         else:
             resp.append(results)
-    
-    end_time = time.time()
-    processing_time = end_time - start_time
-    print(f"Processing time for request with {len(request.queries)} query(ies): {processing_time:.4f} seconds")
-    
+        
+        q_end = time.perf_counter()
+        logger.info(f"Query #{idx+1} finished in {q_end - q_start:.4f}s")
+        # ... 填充 resp ...
+
+    total_time = time.perf_counter() - start_time
+    logger.info(f"<<< Request Processed | Overall Latency: {total_time:.4f}s")
     return {"result": resp}
 
 
@@ -112,10 +144,13 @@ if __name__ == "__main__":
     parser.add_argument("--retriever_model", type=str, default="intfloat/e5-base-v2", help="Path of the retriever model.")
     parser.add_argument('--faiss_gpu', action='store_true', help='Use GPU for computation')
     parser.add_argument("--corpus_name", type=str, default="PubMed", help="Name of the corpus.")
+    parser.add_argument("--workers", type=int, default=16, help="Number of worker processes")
 
     args = parser.parse_args()
     args.db_dir = "/nfsdata3/yiao/yiao/medRAG"
-    retrieval_system = RetrievalSystem(args.retriever_name, args.corpus_name, args.db_dir, cache=False, HNSW=True)
+    args.retriever_name = "BM25"
+    # 初始化检索系统
+    retrieval_system = RetrievalSystem(args.retriever_name, args.corpus_name, args.db_dir, cache=True, HNSW=True)
     # 1) Build a config (could also parse from arguments).
     #    In real usage, you'd parse your CLI arguments or environment variables.
     config = Config(
@@ -134,5 +169,16 @@ if __name__ == "__main__":
     # 2) Instantiate a global retriever so it is loaded once and reused.
     # retriever = get_retriever(config)
     
-    # 3) Launch the server. By default, it listens on http://127.0.0.1:8000
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 3) Launch the server with proper multi-process support
+    if False and args.workers > 1:
+        # 多进程模式 - 使用import string
+        uvicorn.run(
+            "retrieval_server:app",  # 注意这里使用模块名:应用名的格式
+            host="0.0.0.0", 
+            port=8000,
+            workers=args.workers,
+            reload=False  # 多进程时禁用重载
+        )
+    else:
+        # 单进程模式
+        uvicorn.run(app, host="0.0.0.0", port=8000)

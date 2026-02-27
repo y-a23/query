@@ -21,7 +21,8 @@ from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
-from verl.workers.reward_manager.compute_query_score import is_valid_sequence, compute_score_em, compute_correlation
+from verl.workers.reward_manager.compute_query_score import is_valid_sequence, compute_score_em, compute_correlation, get_search_score, is_answer_correct
+
 
 @register("queryrl")
 class QueryRLRewardManager(AbstractRewardManager):
@@ -80,21 +81,32 @@ class QueryRLRewardManager(AbstractRewardManager):
             rollout_reward_scores = data_item.non_tensor_batch.get("reward_scores", {})
             extra_info["num_turns"] = num_turns
             extra_info["rollout_reward_scores"] = rollout_reward_scores
-            contexts = data_item.non_tensor_batch['reward_model']['context']['contexts']
+            
             score = {}
-            score['format_score'] = int(is_valid_sequence(response_str)[0] == True)
-            score['ans_score'] = compute_score_em(solution_str=response_str, ground_truth={'target': ground_truth})
-            score['correlation'] = 0.0
-            if score['format_score'] > 0.0:
-                correlation_result = compute_correlation(contexts, response_str)
-                if isinstance(correlation_result, dict):
-                    score['correlation'] = float(correlation_result['avg_similarity'])
-                else:
-                    # 当compute_correlation返回非字典类型（如0）时的处理
-                    score['correlation'] = 0.0
-            # breakpoint()
-            score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score'] + 0.5 * score['correlation']
+            now_test = 2
+            if now_test == 1:
+                
+                contexts = data_item.non_tensor_batch['reward_model']['context']['contexts']
 
+                score['format_score'] = int(is_valid_sequence(response_str)[0] == True)
+                score['ans_score'] = compute_score_em(solution_str=response_str, ground_truth={'target': ground_truth})
+                score['correlation'] = 0.0
+                if score['format_score'] > 0.0:
+                    correlation_result = compute_correlation(contexts, response_str)
+                    if isinstance(correlation_result, dict):
+                        score['correlation'] = float(correlation_result['avg_similarity'])
+                    else:
+                        # 当compute_correlation返回非字典类型（如0）时的处理
+                        score['correlation'] = 0.0
+                # breakpoint()
+                score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score'] + 0.5 * score['correlation']
+            elif now_test == 2:
+                score['format_score'] = int(is_valid_sequence(response_str)[0] == True)
+                score["ans_score"] = 1.0 * is_answer_correct(model_answer=response_str, ground_truth_list=ground_truth)
+                score['correlation'] = get_search_score(response_str, data_item.non_tensor_batch['reward_model']['paper_title'])
+                score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score'] + 0.5 * score['correlation']
+
+            
             if isinstance(score, dict):
                 reward = score["score"]
                 # Store the information including original reward
@@ -108,8 +120,8 @@ class QueryRLRewardManager(AbstractRewardManager):
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
-            if True or already_print_data_sources[data_source] < self.num_examine:
-                print("====================start================================")
+            self.num_examine = 4
+            if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
                 print("[prompt]", prompt_str)
                 print("[response]", response_str)
@@ -119,7 +131,6 @@ class QueryRLRewardManager(AbstractRewardManager):
                         print(f"[{key}]", value)
                 else:
                     print("[score]", score)
-                print("====================end================================")
 
         if return_dict:
             return {
