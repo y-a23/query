@@ -127,6 +127,7 @@ ENV/
 # local logs
 logs
 log
+nohup.out
 outputs
 .history
 wandb

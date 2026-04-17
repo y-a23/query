@@ -119,6 +119,10 @@ def main():
     file_dir = '/nfsdata3/yiao/data/PaperSearchQA/data'
     split = 'test'
     processed_files = []
+    
+    # 配置分块参数以避免文件过大
+    chunk_size = 10000  # 每个文件最多 10000 行
+    max_file_size_mb = 45  # 目标最大文件大小（MB），留出余量避免超过 50MB
 
     logger.info(f"Processing {split} split...")
     for file in os.listdir(file_dir):
@@ -129,18 +133,35 @@ def main():
                 logger.info(f"Loaded {len(df_raw)} rows from {file_path}")
 
                 def apply_process_row(row, split_name=split):
-                        return process_single_row(row, current_split_name=split_name, row_index=row.name)
+                    return process_single_row(row, current_split_name=split_name, row_index=row.name)
 
                 df_processed = df_raw.apply(apply_process_row, axis=1)
                 
-                # Save processed DataFrame
-                output_file_path = os.path.join(local_save_dir, f"{split}.parquet")
-                df_processed.to_parquet(output_file_path, index=False)
-                logger.info(f"Saved {len(df_processed)} processed rows to {output_file_path}")
-                processed_files.append(output_file_path)
+                # 分块保存处理后的 DataFrame
+                total_rows = len(df_processed)
+                num_chunks = (total_rows + chunk_size - 1) // chunk_size
+                
+                for chunk_idx in range(num_chunks):
+                    start_idx = chunk_idx * chunk_size
+                    end_idx = min(start_idx + chunk_size, total_rows)
+                    df_chunk = df_processed.iloc[start_idx:end_idx]
+                    
+                    # 保存分块文件
+                    output_file_path = os.path.join(local_save_dir, f"{split}_part_{chunk_idx:03d}.parquet")
+                    df_chunk.to_parquet(output_file_path, index=False)
+                    
+                    # 检查文件大小
+                    file_size_mb = os.path.getsize(output_file_path) / (1024 * 1024)
+                    logger.info(f"Saved chunk {chunk_idx + 1}/{num_chunks}: rows {start_idx}-{end_idx-1}, size: {file_size_mb:.2f}MB to {output_file_path}")
+                    
+                    if file_size_mb > max_file_size_mb:
+                        logger.warning(f"Chunk file size ({file_size_mb:.2f}MB) exceeds recommended limit ({max_file_size_mb}MB)")
+                    
+                    processed_files.append(output_file_path)
 
             except Exception as e:
                 logger.error(f"Error processing {split} split: {e}")
+                
     if not processed_files:
         logger.warning("No data was processed or saved")
         return

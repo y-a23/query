@@ -22,7 +22,8 @@ from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
 from verl.workers.reward_manager.compute_query_score import is_valid_sequence, compute_score_em, compute_correlation, get_search_score, is_answer_correct
-
+import os
+QUERYRL_NOW_TEST = os.environ.get("QUERYRL_NOW_TEST", None)
 
 @register("queryrl")
 class QueryRLRewardManager(AbstractRewardManager):
@@ -83,7 +84,9 @@ class QueryRLRewardManager(AbstractRewardManager):
             extra_info["rollout_reward_scores"] = rollout_reward_scores
             
             score = {}
-            now_test = 2
+            # 使用环境变量，如果没有设置则默认为2
+            now_test = int(QUERYRL_NOW_TEST) if QUERYRL_NOW_TEST is not None else -1
+            
             if now_test == 1:
                 
                 contexts = data_item.non_tensor_batch['reward_model']['context']['contexts']
@@ -105,8 +108,14 @@ class QueryRLRewardManager(AbstractRewardManager):
                 score["ans_score"] = 1.0 * is_answer_correct(model_answer=response_str, ground_truth_list=ground_truth)
                 score['correlation'] = get_search_score(response_str, data_item.non_tensor_batch['reward_model']['paper_title'])
                 score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score'] + 0.5 * score['correlation']
+            elif now_test == 3:
+                score['format_score'] = int(is_valid_sequence(response_str)[0] == True)
+                score["ans_score"] = 1.0 * is_answer_correct(model_answer=response_str, ground_truth_list=ground_truth)
+                score['correlation'] = get_search_score(response_str, data_item.non_tensor_batch['reward_model']['paper_title'])
+                score['score'] = 1.0 * score['ans_score'] + 0.2 * score['format_score']
+            else:
+                raise ValueError(f"now_test must be 1, 2, or 3, got {now_test}")
 
-            
             if isinstance(score, dict):
                 reward = score["score"]
                 # Store the information including original reward

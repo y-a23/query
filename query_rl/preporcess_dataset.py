@@ -117,7 +117,7 @@ def main():
     os.makedirs(local_save_dir, exist_ok=True)
 
     file_dir = '/nfsdata/yiao/PubMedQA/pqa_labeled/split'
-    split = 'train'
+    split = 'test'
     processed_files = []
 
     logger.info(f"Processing {split} split...")
